@@ -646,9 +646,26 @@ class _AdminDashboardSectionState extends State<AdminDashboardSection> {
 
   int get _totalKaryawan => _employees.length;
 
-  int get _jumlahHadirHariIni => 0;
+  int get _jumlahHadirHariIni {
+    final today = DateTime.now();
+    return _recapData.where((recap) => recap.dailyDetails.any((d) =>
+      d.date.year == today.year &&
+      d.date.month == today.month &&
+      d.date.day == today.day &&
+      d.status == _DailyAttendanceStatus.hadir,
+    )).length;
+  }
 
-  int get _jumlahOffHariIni => 0;
+  int get _jumlahOffHariIni {
+    final today = DateTime.now();
+    return _recapData.where((recap) => recap.dailyDetails.any((d) =>
+      d.date.year == today.year &&
+      d.date.month == today.month &&
+      d.date.day == today.day &&
+      (d.status == _DailyAttendanceStatus.off ||
+       d.status == _DailyAttendanceStatus.extraOff),
+    )).length;
+  }
 
   int _remainingLeaveForEmployee(String employeeName, {int? year}) {
     final activeYear = year ?? _selectedYear;
@@ -686,37 +703,51 @@ class _AdminDashboardSectionState extends State<AdminDashboardSection> {
     });
   }
 
-  Future<void> _exportData(String format) async {
-    if (_currentRecapData.isEmpty) {
+  Future<void> _exportData() async {
+    if (_employees.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Tidak ada data rekap untuk diekspor.')),
+        const SnackBar(content: Text('Tidak ada data karyawan untuk diekspor.')),
       );
       return;
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Membuat file $format...')),
+      const SnackBar(content: Text('Membuat file Excel...')),
     );
 
     try {
-      final rows = _currentRecapData.map((r) => RecapExportRow(
-        nama: r.employeeName,
-        hadir: r.totalHadir,
-        off: r.totalOff,
-        tidakHadir: r.totalTidakHadir,
-        cuti: r.totalCuti,
-        extraOff: r.totalExtraOff,
-        sakit: r.totalSakit,
-        alfa: r.totalAlfa,
-        lembur: r.totalLembur,
-      )).toList();
+      // Gunakan _employees sebagai base agar semua karyawan muncul (termasuk yg tidak ada absensi)
+      final recapById = {for (final r in _currentRecapData) r.userId: r};
 
-      File file;
-      if (format == 'Excel') {
-        file = await exportRecapExcel(rows, _selectedMonth, _selectedYear);
-      } else {
-        file = await exportRecapPdf(rows, _selectedMonth, _selectedYear);
-      }
+      String _tod(TimeOfDay? t) => t == null
+          ? '-'
+          : '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+      final rows = _employees.map((emp) {
+        final recap = recapById[emp.id];
+        final details = recap?.dailyDetails.map((d) => RecapDailyDetail(
+          date: d.date,
+          status: _dailyStatusLabel(d.status),
+          checkIn: _tod(d.checkIn),
+          checkOut: _tod(d.checkOut),
+          lemburJam: d.lemburHours,
+          keterangan: d.note.trim().isEmpty ? '-' : d.note,
+        )).toList() ?? [];
+        return RecapExportRow(
+          nama: emp.fullName,
+          hadir: recap?.totalHadir ?? 0,
+          off: recap?.totalOff ?? 0,
+          tidakHadir: recap?.totalTidakHadir ?? 0,
+          cuti: recap?.totalCuti ?? 0,
+          extraOff: recap?.totalExtraOff ?? 0,
+          sakit: recap?.totalSakit ?? 0,
+          alfa: recap?.totalAlfa ?? 0,
+          lembur: recap?.totalLembur ?? 0,
+          dailyDetails: details,
+        );
+      }).toList();
+
+      final file = await exportRecapExcel(rows, _selectedMonth, _selectedYear);
 
       if (!mounted) return;
 
@@ -731,12 +762,12 @@ class _AdminDashboardSectionState extends State<AdminDashboardSection> {
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('File $format berhasil dibuat.')),
+          const SnackBar(content: Text('File Excel berhasil dibuat.')),
         );
       }
 
       _addLog(
-        'Export $format',
+        'Export Excel',
         'Rekap absensi $_selectedMonth/$_selectedYear',
         module: 'Rekap Absensi',
         detail: 'Admin mengekspor data rekap periode $_selectedMonth/$_selectedYear',
@@ -744,7 +775,7 @@ class _AdminDashboardSectionState extends State<AdminDashboardSection> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Gagal export $format: $e')),
+        SnackBar(content: Text('Gagal export Excel: $e')),
       );
     }
   }
@@ -1040,18 +1071,22 @@ class _AdminDashboardSectionState extends State<AdminDashboardSection> {
     return 'kode karyawan ${employee.nik}, Jabatan ${employee.jobTitle}, Role ${_labelRole(employee.role)}, Departemen ${employee.department}, Status ${employee.employeeStatus}, Aktif ${employee.isActive ? "Ya" : "Tidak"}';
   }
 
+  /// Gaji pokok penuh jika hadir >= 25. Kurang dari 25: potongan = (25 - hadir) × (gajiPokok / 30).
+  int _calculatePotonganAbsen(int totalHadir, int gajiPokok) {
+    if (totalHadir >= 25) return 0;
+    return ((25 - totalHadir) * (gajiPokok / 30)).round();
+  }
+
   _SalarySlip _createSalarySlip(_EmployeeData employee, _MonthlyRecap? recap) {
     final gajiPokok = employee.gajiPokok;
     final totalLembur = recap?.totalLembur ?? 0;
-    final totalAbsenBermasalah =
-        (recap?.totalAlfa ?? 0) + (recap?.totalTidakHadir ?? 0);
     final tunjanganJabatan = employee.role == AdminRole.admin
         ? 1200000
         : 500000;
     const lembur = 0;
     const tunjanganLain = 300000;
     const potonganPinjaman = 0;
-    final potonganAbsen = totalAbsenBermasalah * 75000;
+    final potonganAbsen = _calculatePotonganAbsen(recap?.totalHadir ?? 0, gajiPokok);
     const potonganBpjsKesehatan = 120000;
     const potonganBpjsTkJht = 95000;
     const potonganBpjsTkJp = 65000;
@@ -1120,6 +1155,7 @@ class _AdminDashboardSectionState extends State<AdminDashboardSection> {
       await _payrollApi.generateAll();
       if (!mounted) return;
       await _loadPayrolls();
+      if (!mounted) return;
       _addLog('Generate massal slip gaji', 'Periode $_selectedMonth/$_selectedYear',
           module: 'Payroll');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1567,6 +1603,7 @@ class _AdminDashboardSectionState extends State<AdminDashboardSection> {
                           labelText: 'Status Kehadiran',
                         ),
                         items: _DailyAttendanceStatus.values
+                            .where((s) => s != _DailyAttendanceStatus.tidakHadir)
                             .map(
                               (status) => DropdownMenuItem(
                                 value: status,
@@ -1867,8 +1904,7 @@ class _AdminDashboardSectionState extends State<AdminDashboardSection> {
           },
           onNameFilterChanged: (value) => setState(() => _nameFilter = value),
           currentRecapData: _currentRecapData,
-          onExportExcel: () => _exportData('Excel'),
-          onExportPdf: () => _exportData('PDF'),
+          onExportExcel: _exportData,
           onShowDetail: _showDailyDetail,
           onEditRecap: _editRecap,
           annualLeaveQuota: _annualLeaveQuota,
@@ -2664,7 +2700,6 @@ class _RecapCard extends StatelessWidget {
   final ValueChanged<String> onNameFilterChanged;
   final List<_MonthlyRecap> currentRecapData;
   final VoidCallback onExportExcel;
-  final VoidCallback onExportPdf;
   final ValueChanged<_MonthlyRecap> onShowDetail;
   final ValueChanged<_MonthlyRecap> onEditRecap;
   final int annualLeaveQuota;
@@ -2681,7 +2716,6 @@ class _RecapCard extends StatelessWidget {
     required this.onNameFilterChanged,
     required this.currentRecapData,
     required this.onExportExcel,
-    required this.onExportPdf,
     required this.onShowDetail,
     required this.onEditRecap,
     required this.annualLeaveQuota,
@@ -2837,11 +2871,6 @@ class _RecapCard extends StatelessWidget {
                   icon: const Icon(Icons.table_view_rounded),
                   label: const Text('Export Excel'),
                 ),
-                OutlinedButton.icon(
-                  onPressed: onExportPdf,
-                  icon: const Icon(Icons.picture_as_pdf_rounded),
-                  label: const Text('Export PDF'),
-                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -2850,79 +2879,79 @@ class _RecapCard extends StatelessWidget {
               style: TextStyle(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
-            ...currentRecapData.map(
-              (item) => Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.employeeName,
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Hadir ${item.totalHadir} | Off ${item.totalOff} | Tidak Hadir ${item.totalTidakHadir} | Cuti ${item.totalCuti} | Extra Off ${item.totalExtraOff} | Sakit ${item.totalSakit} | Alfa ${item.totalAlfa} | Lembur ${item.totalLembur} jam',
-                      ),
-                      Text(
-                        'Sisa Cuti ${remainingLeaveByEmployee[item.employeeName] ?? annualLeaveQuota}/$annualLeaveQuota | Detail harian ${item.dailyDetails.length} hari',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      if (item.dailyDetails.isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        Builder(
-                          builder: (_) {
-                            final latest = item.dailyDetails
-                              ..sort((a, b) => b.date.compareTo(a.date));
-                            final day = latest.first;
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Absensi terbaru: ${DateFormat('dd MMM yyyy', 'id_ID').format(day.date)} | ${_statusLabel(day.status)}',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                Text(
-                                  'Jam masuk ${_timeLabel(day.checkIn)} | Jam pulang ${_timeLabel(day.checkOut)}',
-                                ),
-                                const SizedBox(height: 6),
-                                Row(
-                                  children: [
-                                    _miniPhoto(day.checkInPhotoPath),
-                                    const SizedBox(width: 8),
-                                    _miniPhoto(day.checkOutPhotoPath),
-                                  ],
-                                ),
-                              ],
-                            );
-                          },
-                        ),
-                      ],
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          OutlinedButton.icon(
-                            onPressed: () => onShowDetail(item),
-                            icon: const Icon(Icons.visibility_rounded),
-                            label: const Text('Detail Lengkap'),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
             if (currentRecapData.isEmpty)
               Text(
                 'Data tidak ditemukan.',
                 style: TextStyle(color: emptyTextColor),
+              )
+            else
+              _PaginatedSection<_MonthlyRecap>(
+                items: currentRecapData,
+                itemBuilder: (item) => Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.employeeName,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Hadir ${item.totalHadir} | Off ${item.totalOff} | Tidak Hadir ${item.totalTidakHadir} | Cuti ${item.totalCuti} | Extra Off ${item.totalExtraOff} | Sakit ${item.totalSakit} | Alfa ${item.totalAlfa} | Lembur ${item.totalLembur} jam',
+                        ),
+                        Text(
+                          'Sisa Cuti ${remainingLeaveByEmployee[item.employeeName] ?? annualLeaveQuota}/$annualLeaveQuota | Detail harian ${item.dailyDetails.length} hari',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        if (item.dailyDetails.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Builder(
+                            builder: (_) {
+                              final latest = item.dailyDetails
+                                ..sort((a, b) => b.date.compareTo(a.date));
+                              final day = latest.first;
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Absensi terbaru: ${DateFormat('dd MMM yyyy', 'id_ID').format(day.date)} | ${_statusLabel(day.status)}',
+                                    style: const TextStyle(fontWeight: FontWeight.w600),
+                                  ),
+                                  Text(
+                                    'Jam masuk ${_timeLabel(day.checkIn)} | Jam pulang ${_timeLabel(day.checkOut)}',
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    children: [
+                                      _miniPhoto(day.checkInPhotoPath),
+                                      const SizedBox(width: 8),
+                                      _miniPhoto(day.checkOutPhotoPath),
+                                    ],
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ],
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: () => onShowDetail(item),
+                              icon: const Icon(Icons.visibility_rounded),
+                              label: const Text('Detail Lengkap'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
           ],
         ),
@@ -2969,107 +2998,98 @@ class _ApprovalCard extends StatelessWidget {
               style: TextStyle(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 10),
-            ...requests.map(
-              (item) => Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '${item.employeeName} - ${labelApprovalType(item.type)}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: statusColor(item.status),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              labelApprovalStatus(item.status),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Tanggal: ${DateFormat('dd MMM yyyy', 'id_ID').format(item.date)}',
-                      ),
-                      Text(
-                        'Alasan: ${(item.reason == null || item.reason!.trim().isEmpty) ? '-' : item.reason}',
-                      ),
-                      if (item.attachment != null && item.attachment!.isNotEmpty)
-                        GestureDetector(
-                          onTap: () async {
-                            final uri = Uri.tryParse(item.attachment!);
-                            if (uri != null && await canLaunchUrl(uri)) {
-                              await launchUrl(uri, mode: LaunchMode.externalApplication);
-                            }
-                          },
-                          child: const Text(
-                            'Lampiran',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue,
-                              decoration: TextDecoration.underline,
-                              decorationColor: Colors.blue,
-                            ),
-                          ),
-                        )
-                      else
-                        const Text('Lampiran: -'),
-                      if (item.type == ApprovalType.cuti)
-                        Text(
-                          'Sisa Cuti: ${remainingLeaveLookup(item.employeeName)}/$annualLeaveQuota',
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      if (item.status == ApprovalStatus.pending) ...[
-                        const SizedBox(height: 8),
+            if (requests.isEmpty)
+              Text('Tidak ada pengajuan.', style: TextStyle(color: emptyTextColor))
+            else
+              _PaginatedSection<_ApprovalRequest>(
+                items: requests,
+                itemBuilder: (item) => Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Row(
                           children: [
                             Expanded(
-                              child: FilledButton.tonal(
-                                onPressed: () => onUpdateApproval(
-                                  item,
-                                  ApprovalStatus.approved,
-                                ),
-                                child: const Text('Approve'),
+                              child: Text(
+                                '${item.employeeName} - ${labelApprovalType(item.type)}',
+                                style: const TextStyle(fontWeight: FontWeight.w700),
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: FilledButton.tonal(
-                                onPressed: () => onUpdateApproval(
-                                  item,
-                                  ApprovalStatus.rejected,
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: statusColor(item.status),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                labelApprovalStatus(item.status),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
                                 ),
-                                child: const Text('Reject'),
                               ),
                             ),
                           ],
                         ),
+                        const SizedBox(height: 8),
+                        Text('Tanggal: ${DateFormat('dd MMM yyyy', 'id_ID').format(item.date)}'),
+                        Text(
+                          'Alasan: ${(item.reason == null || item.reason!.trim().isEmpty) ? '-' : item.reason}',
+                        ),
+                        if (item.attachment != null && item.attachment!.isNotEmpty)
+                          GestureDetector(
+                            onTap: () async {
+                              final uri = Uri.tryParse(item.attachment!);
+                              if (uri != null && await canLaunchUrl(uri)) {
+                                await launchUrl(uri, mode: LaunchMode.externalApplication);
+                              }
+                            },
+                            child: const Text(
+                              'Lampiran',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue,
+                                decoration: TextDecoration.underline,
+                                decorationColor: Colors.blue,
+                              ),
+                            ),
+                          )
+                        else
+                          const Text('Lampiran: -'),
+                        if (item.type == ApprovalType.cuti)
+                          Text(
+                            'Sisa Cuti: ${remainingLeaveLookup(item.employeeName)}/$annualLeaveQuota',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        if (item.status == ApprovalStatus.pending) ...[
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: FilledButton.tonal(
+                                  onPressed: () => onUpdateApproval(item, ApprovalStatus.approved),
+                                  child: const Text('Approve'),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: FilledButton.tonal(
+                                  onPressed: () => onUpdateApproval(item, ApprovalStatus.rejected),
+                                  child: const Text('Reject'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ),
-            ),
             const SizedBox(height: 8),
             const Text(
               'Riwayat Approval',
@@ -3154,8 +3174,9 @@ class _PayrollCard extends StatelessWidget {
               style: TextStyle(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
-            ...employees.map(
-              (employee) => Padding(
+            _PaginatedSection<_EmployeeData>(
+              items: employees,
+              itemBuilder: (employee) => Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Row(
                   children: [
@@ -3178,8 +3199,9 @@ class _PayrollCard extends StatelessWidget {
             if (salarySlips.isEmpty)
               const Text('Belum ada slip untuk periode ini.')
             else
-              ...salarySlips.map(
-                (slip) => Card(
+              _PaginatedSection<_SalarySlip>(
+                items: salarySlips,
+                itemBuilder: (slip) => Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: Padding(
                     padding: const EdgeInsets.all(12),
@@ -3191,9 +3213,7 @@ class _PayrollCard extends StatelessWidget {
                             Expanded(
                               child: Text(
                                 slip.employeeName,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                ),
+                                style: const TextStyle(fontWeight: FontWeight.w700),
                               ),
                             ),
                             Text('Gaji Bersih: ${currency.format(slip.netSalary)}'),
@@ -3201,39 +3221,21 @@ class _PayrollCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 6),
                         Text('Gaji Pokok: ${currency.format(slip.gajiPokok)}'),
-                        Text(
-                          'Tunjangan Jabatan: ${currency.format(slip.tunjanganJabatan)}',
-                        ),
+                        Text('Tunjangan Jabatan: ${currency.format(slip.tunjanganJabatan)}'),
                         Text('Lembur: ${currency.format(slip.lembur)}'),
-                        Text(
-                          'Tunjangan Lain: ${currency.format(slip.tunjanganLain)}',
-                        ),
+                        Text('Tunjangan Lain: ${currency.format(slip.tunjanganLain)}'),
                         Text(
                           'Gaji Kotor: ${currency.format(slip.grossSalary)}',
                           style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                         const Divider(height: 12),
-                        Text(
-                          'Potongan Pinjaman: ${currency.format(slip.potonganPinjaman)}',
-                        ),
-                        Text(
-                          'Potongan Absen: ${currency.format(slip.potonganAbsen)}',
-                        ),
-                        Text(
-                          'Potongan BPJS Kesehatan: ${currency.format(slip.potonganBpjsKesehatan)}',
-                        ),
-                        Text(
-                          'Potongan BPJS TK JHT: ${currency.format(slip.potonganBpjsTkJht)}',
-                        ),
-                        Text(
-                          'Potongan BPJS TK JP: ${currency.format(slip.potonganBpjsTkJp)}',
-                        ),
-                        Text(
-                          'Potongan Pajak PPh21: ${currency.format(slip.potonganPph21)}',
-                        ),
-                        Text(
-                          'Catatan: ${slip.notes.isEmpty ? '-' : slip.notes}',
-                        ),
+                        Text('Potongan Pinjaman: ${currency.format(slip.potonganPinjaman)}'),
+                        Text('Potongan Absen: ${currency.format(slip.potonganAbsen)}'),
+                        Text('Potongan BPJS Kesehatan: ${currency.format(slip.potonganBpjsKesehatan)}'),
+                        Text('Potongan BPJS TK JHT: ${currency.format(slip.potonganBpjsTkJht)}'),
+                        Text('Potongan BPJS TK JP: ${currency.format(slip.potonganBpjsTkJp)}'),
+                        Text('Potongan Pajak PPh21: ${currency.format(slip.potonganPph21)}'),
+                        Text('Catatan: ${slip.notes.isEmpty ? '-' : slip.notes}'),
                         Text(
                           slip.sentAt == null
                               ? 'Status: Belum dikirim'
@@ -3252,11 +3254,7 @@ class _PayrollCard extends StatelessWidget {
                             Expanded(
                               child: FilledButton(
                                 onPressed: () => onSendSlip(slip),
-                                child: Text(
-                                  slip.sentAt == null
-                                      ? 'Kirim PDF'
-                                      : 'Kirim Ulang PDF',
-                                ),
+                                child: Text(slip.sentAt == null ? 'Kirim PDF' : 'Kirim Ulang PDF'),
                               ),
                             ),
                           ],
@@ -3318,8 +3316,9 @@ class _EmployeeManagementCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            ...employees.map(
-              (employee) => Card(
+            _PaginatedSection<_EmployeeData>(
+              items: employees,
+              itemBuilder: (employee) => Card(
                 margin: const EdgeInsets.only(bottom: 8),
                 child: Padding(
                   padding: const EdgeInsets.all(10),
@@ -3336,22 +3335,11 @@ class _EmployeeManagementCard extends StatelessWidget {
                               children: [
                                 Text(
                                   employee.fullName,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                                  style: const TextStyle(fontWeight: FontWeight.w700),
                                 ),
-                                Text(
-                                  'kode karyawan: ${employee.nik}',
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                                Text(
-                                  '${employee.jobTitle} | ${employee.department}',
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                                Text(
-                                  'Status: ${employee.employeeStatus}',
-                                  style: const TextStyle(fontSize: 12),
-                                ),
+                                Text('kode karyawan: ${employee.nik}', style: const TextStyle(fontSize: 12)),
+                                Text('${employee.jobTitle} | ${employee.department}', style: const TextStyle(fontSize: 12)),
+                                Text('Status: ${employee.employeeStatus}', style: const TextStyle(fontSize: 12)),
                                 Text(
                                   'Gaji Pokok: Rp ${NumberFormat.decimalPattern('id_ID').format(employee.gajiPokok)}',
                                   style: const TextStyle(fontSize: 12),
@@ -3371,18 +3359,9 @@ class _EmployeeManagementCard extends StatelessWidget {
                               }
                             },
                             itemBuilder: (_) => const [
-                              PopupMenuItem(
-                                value: 'edit',
-                                child: Text('Edit Karyawan'),
-                              ),
-                              PopupMenuItem(
-                                value: 'reset',
-                                child: Text('Reset Password'),
-                              ),
-                              PopupMenuItem(
-                                value: 'hapus',
-                                child: Text('Hapus Data'),
-                              ),
+                              PopupMenuItem(value: 'edit', child: Text('Edit Karyawan')),
+                              PopupMenuItem(value: 'reset', child: Text('Reset Password')),
+                              PopupMenuItem(value: 'hapus', child: Text('Hapus Data')),
                             ],
                           ),
                         ],
@@ -3399,14 +3378,8 @@ class _EmployeeManagementCard extends StatelessWidget {
                                 isDense: true,
                               ),
                               items: const [
-                                DropdownMenuItem(
-                                  value: AdminRole.admin,
-                                  child: Text('Admin'),
-                                ),
-                                DropdownMenuItem(
-                                  value: AdminRole.user,
-                                  child: Text('User'),
-                                ),
+                                DropdownMenuItem(value: AdminRole.admin, child: Text('Admin')),
+                                DropdownMenuItem(value: AdminRole.user, child: Text('User')),
                               ],
                               onChanged: (value) {
                                 if (value == null) return;
@@ -3477,87 +3450,204 @@ class _LogCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             if (logs.isEmpty && !isLoading)
-              Text(
-                'Belum ada aktivitas.',
-                style: TextStyle(color: emptyTextColor),
-              )
+              Text('Belum ada aktivitas.', style: TextStyle(color: emptyTextColor))
             else
-              ...logs
-                  .take(20)
-                  .map(
-                    (log) => Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      color: const Color(0xFFF8FAFF),
-                      child: Padding(
-                        padding: const EdgeInsets.all(10),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+              _PaginatedSection<_ActivityLog>(
+                items: logs,
+                itemBuilder: (log) => Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  color: const Color(0xFFF8FAFF),
+                  child: Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          DateFormat('dd/MM/yyyy HH:mm:ss').format(log.time),
+                          style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
                           children: [
-                            Text(
-                              DateFormat(
-                                'dd/MM/yyyy HH:mm:ss',
-                              ).format(log.time),
-                              style: TextStyle(
-                                color: cs.onSurfaceVariant,
-                                fontSize: 12,
+                            Expanded(
+                              child: Text(log.actor, style: const TextStyle(fontWeight: FontWeight.w700)),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE3EAFF),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                log.module,
+                                style: TextStyle(fontSize: 11, color: cs.primary, fontWeight: FontWeight.w600),
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    log.actor,
-                                    style: const TextStyle(fontWeight: FontWeight.w700),
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFE3EAFF),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Text(
-                                    log.module,
-                                    style: TextStyle(fontSize: 11, color: cs.primary, fontWeight: FontWeight.w600),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              log.target.isEmpty ? log.action : '${log.action} — ${log.target}',
-                              style: const TextStyle(fontWeight: FontWeight.w500),
-                            ),
-                            if (log.detail != null && log.detail!.trim().isNotEmpty) ...[
-                              const SizedBox(height: 2),
-                              Text(
-                                log.detail!,
-                                style: TextStyle(fontSize: 12, color: cs.error),
-                              ),
-                            ],
-                            if (log.before != null && log.before!.trim().isNotEmpty) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                'Sebelum: ${log.before!}',
-                                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
-                              ),
-                            ],
-                            if (log.after != null && log.after!.trim().isNotEmpty) ...[
-                              const SizedBox(height: 2),
-                              Text(
-                                'Sesudah: ${log.after!}',
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                              ),
-                            ],
                           ],
                         ),
-                      ),
+                        const SizedBox(height: 4),
+                        Text(
+                          log.target.isEmpty ? log.action : '${log.action} — ${log.target}',
+                          style: const TextStyle(fontWeight: FontWeight.w500),
+                        ),
+                        if (log.detail != null && log.detail!.trim().isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(log.detail!, style: TextStyle(fontSize: 12, color: cs.error)),
+                        ],
+                        if (log.before != null && log.before!.trim().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text('Sebelum: ${log.before!}', style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+                        ],
+                        if (log.after != null && log.after!.trim().isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text('Sesudah: ${log.after!}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                        ],
+                      ],
                     ),
                   ),
+                ),
+              ),
           ],
         ),
       ),
+    );
+  }
+}
+
+// ─── Pagination helpers ───────────────────────────────────────────────────────
+
+class _PaginationBar extends StatelessWidget {
+  final int currentPage;
+  final int totalPages;
+  final ValueChanged<int> onPageChanged;
+
+  const _PaginationBar({
+    required this.currentPage,
+    required this.totalPages,
+    required this.onPageChanged,
+  });
+
+  List<int?> _buildPages() {
+    if (totalPages <= 1) return [];
+    if (totalPages <= 5) return List.generate(totalPages, (i) => i + 1);
+    final pages = <int>{1, totalPages};
+    for (var i = currentPage - 1; i <= currentPage + 1; i++) {
+      if (i >= 1 && i <= totalPages) pages.add(i);
+    }
+    final sorted = pages.toList()..sort();
+    final result = <int?>[];
+    for (var i = 0; i < sorted.length; i++) {
+      if (i > 0 && sorted[i] - sorted[i - 1] > 1) result.add(null);
+      result.add(sorted[i]);
+    }
+    return result;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (totalPages <= 1) return const SizedBox.shrink();
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          IconButton(
+            iconSize: 18,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            onPressed: currentPage > 1 ? () => onPageChanged(currentPage - 1) : null,
+            icon: const Icon(Icons.chevron_left_rounded),
+          ),
+          ..._buildPages().map((p) {
+            if (p == null) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 4),
+                child: Text('..', style: TextStyle(fontWeight: FontWeight.w600)),
+              );
+            }
+            final active = p == currentPage;
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: InkWell(
+                onTap: () => onPageChanged(p),
+                borderRadius: BorderRadius.circular(6),
+                child: Container(
+                  width: 32,
+                  height: 32,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: active ? cs.primary : null,
+                    borderRadius: BorderRadius.circular(6),
+                    border: active ? null : Border.all(color: cs.outlineVariant),
+                  ),
+                  child: Text(
+                    '$p',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: active ? FontWeight.w700 : FontWeight.normal,
+                      color: active ? cs.onPrimary : cs.onSurface,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
+          IconButton(
+            iconSize: 18,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            onPressed: currentPage < totalPages ? () => onPageChanged(currentPage + 1) : null,
+            icon: const Icon(Icons.chevron_right_rounded),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PaginatedSection<T> extends StatefulWidget {
+  final List<T> items;
+  final Widget Function(T) itemBuilder;
+  static const pageSize = 10;
+
+  const _PaginatedSection({required this.items, required this.itemBuilder});
+
+  @override
+  State<_PaginatedSection<T>> createState() => _PaginatedSectionState<T>();
+}
+
+class _PaginatedSectionState<T> extends State<_PaginatedSection<T>> {
+  int _page = 1;
+
+  int _totalPages(int count) =>
+      count == 0 ? 1 : ((count - 1) ~/ _PaginatedSection.pageSize + 1);
+
+  @override
+  void didUpdateWidget(_PaginatedSection<T> old) {
+    super.didUpdateWidget(old);
+    final max = _totalPages(widget.items.length);
+    if (_page > max) setState(() => _page = max.clamp(1, 999));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final total = _totalPages(widget.items.length);
+    final page = _page.clamp(1, total);
+    final paged = widget.items
+        .skip((page - 1) * _PaginatedSection.pageSize)
+        .take(_PaginatedSection.pageSize)
+        .toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ...paged.map(widget.itemBuilder),
+        _PaginationBar(
+          currentPage: page,
+          totalPages: total,
+          onPageChanged: (p) => setState(() => _page = p),
+        ),
+      ],
     );
   }
 }

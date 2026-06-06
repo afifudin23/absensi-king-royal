@@ -63,7 +63,6 @@ class EmployeeProfilePage extends StatefulWidget {
   final int remainingLeave;
   final List<LeaveHistoryItem> leaveHistory;
   final VoidCallback onResetPassword;
-  final Future<void> Function() onLogout;
 
   const EmployeeProfilePage({
     super.key,
@@ -94,7 +93,6 @@ class EmployeeProfilePage extends StatefulWidget {
     required this.remainingLeave,
     required this.leaveHistory,
     required this.onResetPassword,
-    required this.onLogout,
   });
 
   @override
@@ -117,6 +115,9 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
   late String _phoneNumber;
   late String _bankAccountNumber;
 
+  final _scrollController = ScrollController();
+  static const double _kExpandedContent = 236.0;
+
   @override
   void initState() {
     super.initState();
@@ -128,6 +129,12 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
     _address = widget.address;
     _phoneNumber = widget.phoneNumber;
     _bankAccountNumber = widget.bankAccountNumber;
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _pickProfilePhoto() async {
@@ -256,186 +263,311 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final ImageProvider<Object> profileImage = _resolveProfileImage(_profilePhotoPath);
+    const royalBlue = Color(0xFF0D2B52);
+    const royalBlueDark = Color(0xFF071828);
+    const royalGold = Color(0xFFC9A548);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Profil Karyawan')),
-      body: Stack(
+      body: Column(
         children: [
-          Positioned.fill(
-            child: Opacity(
-              opacity: 0.06,
-              child: Center(
-                child: Image.asset(
-                  'assets/icons/app_icon.jpg',
-                  width: 320,
-                  fit: BoxFit.contain,
-                ),
-              ),
-            ),
-          ),
-          ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      ProfileAvatar(radius: 44, photoPath: _profilePhotoPath),
-                      const SizedBox(height: 12),
-                      Text(
-                        widget.fullName,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
+          // ── Collapsing gradient header ──────────────────────────
+          AnimatedBuilder(
+            animation: _scrollController,
+            builder: (context, _) {
+              final safeTop = MediaQuery.of(context).padding.top;
+              final offset = _scrollController.hasClients
+                  ? _scrollController.offset.clamp(0.0, _kExpandedContent)
+                  : 0.0;
+              final p = offset / _kExpandedContent;
+              final contentOpacity = (1.0 - p * 2.0).clamp(0.0, 1.0);
+              final collapsedOpacity = (p * 2.0 - 0.8).clamp(0.0, 1.0);
+              return SizedBox(
+                height: safeTop + kToolbarHeight + (1.0 - p) * _kExpandedContent,
+                child: Stack(
+                  clipBehavior: Clip.hardEdge,
+                  children: [
+                    // Background gradient
+                    Positioned.fill(
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [royalBlue, royalBlueDark],
+                          ),
                         ),
-                        textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 10),
-                      _InfoText(label: 'Nama Lengkap', value: widget.fullName),
-                      _InfoText(label: 'kode karyawan', value: widget.nik),
-                      _InfoText(
-                        label: 'Tempat, Tanggal Lahir',
-                        value:
-                            '$_placeOfBirth, ${DateFormat('dd MMMM yyyy', 'id_ID').format(_birthDate)}',
-                      ),
-                      _InfoText(label: 'Jenis Kelamin', value: genderToDisplay(_gender)),
-                      _InfoText(label: 'Alamat', value: _address),
-                      _InfoText(label: 'Nomor HP', value: _phoneNumber),
-                      _InfoText(label: 'Email', value: widget.email),
-                      _InfoText(label: 'Jabatan', value: widget.jobTitle),
-                      _InfoText(label: 'Role', value: widget.role),
-                      _InfoText(label: 'Departemen', value: widget.department),
-                      _InfoText(
-                        label: 'Status Karyawan',
-                        value: widget.employeeStatus,
-                      ),
-                      _InfoText(
-                        label: 'Tanggal Masuk',
-                        value: DateFormat(
-                          'dd MMMM yyyy',
-                          'id_ID',
-                        ).format(widget.joinDate),
-                      ),
-                      _InfoText(
-                        label: 'No Rekening',
-                        value: _bankAccountNumber,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Statistik Kehadiran',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
+                    ),
+
+                    // Back button row + collapsed title (always visible)
+                    Positioned(
+                      top: safeTop,
+                      left: 0,
+                      right: 0,
+                      height: kToolbarHeight,
+                      child: Row(
                         children: [
-                          _StatChip(
-                            label: 'Total Hadir',
-                            value: '${widget.totalHadir} hari',
+                          IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(
+                              Icons.arrow_back_ios_new_rounded,
+                              color: Colors.white,
+                              size: 20,
+                            ),
                           ),
-                          _StatChip(
-                            label: 'Total Off',
-                            value: '${widget.totalOff} hari',
-                          ),
-                          _StatChip(
-                            label: 'Total Cuti',
-                            value: '${widget.totalCuti} hari',
-                          ),
-                          _StatChip(
-                            label: 'Total Extra Off',
-                            value: '${widget.totalExtraOff} hari',
-                          ),
-                          _StatChip(
-                            label: 'Total Sakit',
-                            value: '${widget.totalSakit} hari',
-                          ),
-                          _StatChip(
-                            label: 'Total Lembur',
-                            value: '${widget.totalLembur} jam',
-                          ),
-                          _StatChip(
-                            label: 'Sisa Cuti',
-                            value:
-                                '${widget.remainingLeave} dari ${widget.annualLeaveQuota} hari',
+                          Expanded(
+                            child: Opacity(
+                              opacity: collapsedOpacity,
+                              child: Row(
+                                children: [
+                                  ProfileAvatar(radius: 14, photoPath: _profilePhotoPath),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      widget.fullName,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Riwayat Pengajuan Izin',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 10),
-                      ...widget.leaveHistory.map(
-                        (item) => Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Row(
+                    ),
+
+                    // Expanded profile content (fades out as header collapses)
+                    Positioned(
+                      top: safeTop + kToolbarHeight,
+                      left: 0,
+                      right: 0,
+                      child: Opacity(
+                        opacity: contentOpacity,
+                        child: Transform.translate(
+                          offset: Offset(0, -p * 16),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Expanded(
-                                child: Text('${item.title} (${item.date})'),
+                              ProfileAvatar(radius: 48, photoPath: _profilePhotoPath),
+                              const SizedBox(height: 12),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 24),
+                                child: Text(
+                                  widget.fullName,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                              _StatusBadge(status: item.status),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${widget.jobTitle} · ${widget.department}',
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.7),
+                                  fontSize: 13,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: royalGold.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: royalGold.withValues(alpha: 0.5)),
+                                ),
+                                child: Text(
+                                  widget.role,
+                                  style: const TextStyle(
+                                    color: royalGold,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.4,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 20),
                             ],
                           ),
                         ),
                       ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+
+          // ── Content ────────────────────────────────────────────
+          Expanded(
+            child: ListView(
+              controller: _scrollController,
+              padding: const EdgeInsets.all(16),
+              physics: const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
+              ),
+              children: [
+                // Info pribadi
+                _SectionCard(
+                  title: 'Informasi Pribadi',
+                  icon: Icons.person_outline_rounded,
+                  children: [
+                    _InfoRow(label: 'Kode Karyawan', value: widget.nik),
+                    _InfoRow(
+                      label: 'Tempat, Tgl Lahir',
+                      value: '$_placeOfBirth, ${DateFormat('dd MMMM yyyy', 'id_ID').format(_birthDate)}',
+                    ),
+                    _InfoRow(label: 'Jenis Kelamin', value: genderToDisplay(_gender)),
+                    _InfoRow(label: 'Alamat', value: _address),
+                    _InfoRow(label: 'Nomor HP', value: _phoneNumber),
+                    _InfoRow(label: 'Email', value: widget.email),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Info kepegawaian
+                _SectionCard(
+                  title: 'Kepegawaian',
+                  icon: Icons.work_outline_rounded,
+                  children: [
+                    _InfoRow(label: 'Status', value: widget.employeeStatus),
+                    _InfoRow(
+                      label: 'Tanggal Masuk',
+                      value: DateFormat('dd MMMM yyyy', 'id_ID').format(widget.joinDate),
+                    ),
+                    _InfoRow(label: 'No Rekening', value: _bankAccountNumber),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Statistik
+                _SectionCard(
+                  title: 'Statistik Kehadiran Bulan Ini',
+                  icon: Icons.bar_chart_rounded,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: GridView.count(
+                        crossAxisCount: 3,
+                        childAspectRatio: 1.1,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        children: [
+                          _StatChip(label: 'Hadir', value: '${widget.totalHadir}', unit: 'hari', color: const Color(0xFF1B5E20)),
+                          _StatChip(label: 'Off', value: '${widget.totalOff}', unit: 'hari', color: const Color(0xFF455A64)),
+                          _StatChip(label: 'Cuti', value: '${widget.totalCuti}', unit: 'hari', color: const Color(0xFF6A1B9A)),
+                          _StatChip(label: 'Extra Off', value: '${widget.totalExtraOff}', unit: 'hari', color: const Color(0xFF1565C0)),
+                          _StatChip(label: 'Sakit', value: '${widget.totalSakit}', unit: 'hari', color: const Color(0xFFE65100)),
+                          _StatChip(label: 'Lembur', value: '${widget.totalLembur}', unit: 'jam', color: royalBlue),
+                          _StatChip(
+                            label: 'Sisa Cuti',
+                            value: '${widget.remainingLeave}/${widget.annualLeaveQuota}',
+                            unit: 'hari',
+                            color: const Color(0xFF00695C),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Riwayat izin
+                if (widget.leaveHistory.isNotEmpty)
+                  _SectionCard(
+                    title: 'Riwayat Pengajuan Izin',
+                    icon: Icons.history_rounded,
+                    children: widget.leaveHistory
+                        .map(
+                          (item) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        item.title,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                      Text(
+                                        item.date,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                _StatusBadge(status: item.status),
+                              ],
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                if (widget.leaveHistory.isNotEmpty) const SizedBox(height: 12),
+
+                // Action buttons
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      _ProfileNavItem(
+                        icon: Icons.edit_rounded,
+                        label: 'Edit Profil',
+                        color: royalBlue,
+                        onTap: _openEditProfilePage,
+                        isFirst: true,
+                      ),
+                      const Divider(height: 1, indent: 56),
+                      _ProfileNavItem(
+                        icon: Icons.lock_reset_rounded,
+                        label: 'Ubah Password',
+                        color: const Color(0xFF4A148C),
+                        onTap: widget.onResetPassword,
+                      ),
+                      const Divider(height: 1, indent: 56),
+                      _ProfileNavItem(
+                        icon: Icons.receipt_long_rounded,
+                        label: 'Lihat Slip Gaji',
+                        color: const Color(0xFF1B5E20),
+                        onTap: _openSlipHistoryPage,
+                        isLast: true,
+                      ),
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: _openEditProfilePage,
-                icon: const Icon(Icons.edit_rounded),
-                label: const Text('Edit Profil'),
-              ),
-              const SizedBox(height: 10),
-              FilledButton.icon(
-                onPressed: widget.onResetPassword,
-                icon: const Icon(Icons.lock_reset_rounded),
-                label: const Text('Reset Password'),
-              ),
-              const SizedBox(height: 10),
-              FilledButton.icon(
-                onPressed: _openSlipHistoryPage,
-                icon: const Icon(Icons.receipt_long_rounded),
-                label: const Text('Lihat Slip Gaji'),
-              ),
-              const SizedBox(height: 10),
-              FilledButton.tonalIcon(
-                style: FilledButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  backgroundColor: cs.error,
-                ),
-                onPressed: widget.onLogout,
-                icon: const Icon(Icons.logout_rounded),
-                label: const Text('Log Out'),
-              ),
-            ],
+                const SizedBox(height: 24),
+              ],
+            ),
           ),
         ],
       ),
@@ -477,81 +609,181 @@ class _SlipHistoryPageState extends State<_SlipHistoryPage> {
 
   @override
   Widget build(BuildContext context) {
+    const royalBlue = Color(0xFF0D2B52);
+    const royalBlueDark = Color(0xFF071828);
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Slip Gaji Terkirim')),
-      body: Builder(builder: (_) {
-        if (_error != null) {
-          return Center(child: Text(_error!, style: TextStyle(color: cs.error)));
-        }
-        if (_slips == null) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Text(
-              widget.employeeName,
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+      body: Column(
+        children: [
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [royalBlue, royalBlueDark],
+              ),
             ),
-            const SizedBox(height: 10),
-            ..._slips!.map(
-              (slip) => Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  title: Text(
-                    DateFormat('MMMM yyyy', 'id_ID')
-                        .format(DateTime(slip.year, slip.month)),
-                  ),
-                  subtitle: Text(
-                    'Terkirim ${slip.sentAt != null ? DateFormat('dd/MM/yyyy HH:mm', 'id_ID').format(DateTime.parse(slip.sentAt!)) : '-'} | Total ${NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0).format(slip.netSalary)}',
-                  ),
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 8, 16, 16),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
+                    ),
+                    const Expanded(
+                      child: Text(
+                        'Slip Gaji',
+                        style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    const Icon(Icons.receipt_long_rounded, color: Colors.white70),
+                  ],
                 ),
               ),
             ),
-            if (_slips!.isEmpty)
-              Text(
-                'Belum ada slip gaji yang dikirim.',
-                style: TextStyle(color: cs.onSurfaceVariant),
-              ),
-          ],
-        );
-      }),
+          ),
+          Expanded(
+            child: Builder(builder: (_) {
+              if (_error != null) {
+                return Center(child: Text(_error!, style: TextStyle(color: cs.error)));
+              }
+              if (_slips == null) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (_slips!.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.receipt_long_outlined, size: 56, color: Colors.grey.shade300),
+                      const SizedBox(height: 12),
+                      Text('Belum ada slip gaji.', style: TextStyle(color: Colors.grey.shade400)),
+                    ],
+                  ),
+                );
+              }
+              return ListView.separated(
+                padding: const EdgeInsets.all(16),
+                itemCount: _slips!.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (_, i) {
+                  final slip = _slips![i];
+                  final net = NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0).format(slip.netSalary);
+                  final sentStr = slip.sentAt != null
+                      ? DateFormat('dd MMM yyyy', 'id_ID').format(DateTime.parse(slip.sentAt!))
+                      : null;
+                  return Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 10, offset: const Offset(0, 3))],
+                    ),
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEAF0FF),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(Icons.receipt_rounded, color: royalBlue, size: 22),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                DateFormat('MMMM yyyy', 'id_ID').format(DateTime(slip.year, slip.month)),
+                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                              ),
+                              if (sentStr != null) ...[
+                                const SizedBox(height: 2),
+                                Text('Terkirim $sentStr', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                              ],
+                            ],
+                          ),
+                        ),
+                        Text(
+                          net,
+                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: royalBlue),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            }),
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _InfoText extends StatelessWidget {
-  final String label;
-  final String value;
+// ── New helper widgets ─────────────────────────────────────────────────────
 
-  const _InfoText({required this.label, required this.value});
+class _SectionCard extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final List<Widget> children;
+
+  const _SectionCard({required this.title, required this.icon, required this.children});
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isLongValue = value.length > 24;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 130,
-            child: Text(label, style: TextStyle(color: cs.onSurfaceVariant)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+            child: Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEAF0FF),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, size: 17, color: const Color(0xFF0D2B52)),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    color: Color(0xFF0D2B52),
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              value,
-              textAlign: TextAlign.right,
-              softWrap: true,
-              overflow: TextOverflow.visible,
-              maxLines: 4,
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: isLongValue ? 13 : 14,
-              ),
+          const SizedBox(height: 10),
+          const Divider(height: 1, indent: 16, endIndent: 16),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: children,
             ),
           ),
         ],
@@ -560,28 +792,154 @@ class _InfoText extends StatelessWidget {
   }
 }
 
-class _StatChip extends StatelessWidget {
+class _InfoRow extends StatelessWidget {
   final String label;
   final String value;
 
-  const _StatChip({required this.label, required this.value});
+  const _InfoRow({required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
-    final width = (MediaQuery.of(context).size.width - 52) / 2;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 130,
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+              maxLines: 4,
+              overflow: TextOverflow.visible,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileNavItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  final bool isFirst;
+  final bool isLast;
+
+  const _ProfileNavItem({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+    this.isFirst = false,
+    this.isLast = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.vertical(
+          top: isFirst ? const Radius.circular(18) : Radius.zero,
+          bottom: isLast ? const Radius.circular(18) : Radius.zero,
+        ),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, size: 18, color: color),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1A1A2E),
+                  ),
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, size: 20, color: Colors.grey.shade400),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final String unit;
+  final Color color;
+
+  const _StatChip({
+    required this.label,
+    required this.value,
+    required this.unit,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      width: width.clamp(140, 260),
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFEAF0FF),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(label, style: const TextStyle(fontSize: 12)),
-          const SizedBox(height: 4),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
+          Text(
+            label,
+            style: TextStyle(fontSize: 10, color: color.withValues(alpha: 0.8)),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+              color: color,
+            ),
+          ),
+          Text(
+            unit,
+            style: TextStyle(
+              fontSize: 10,
+              color: color.withValues(alpha: 0.7),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );

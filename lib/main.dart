@@ -101,7 +101,26 @@ class _AbsensiKingRoyalAppState extends State<AbsensiKingRoyalApp> {
         scaffoldBackgroundColor: const Color(0xFFF7F8FB),
       ),
       home: _checkingSession
-          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+          ? Scaffold(
+              backgroundColor: const Color(0xFF0D2B52),
+              body: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: Image.asset('assets/icons/app_icon.jpg', width: 72, height: 72, fit: BoxFit.cover),
+                    ),
+                    const SizedBox(height: 24),
+                    const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2.5, color: Color(0xFFC9A548)),
+                    ),
+                  ],
+                ),
+              ),
+            )
           : _loggedInUser == null
               ? LoginPage(
                   authService: _authService,
@@ -134,7 +153,6 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   Timer? _timer;
-  DateTime _now = DateTime.now();
 
   String employeeName = '';
   String employeeNik = '';
@@ -192,7 +210,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       final now = DateTime.now();
-      setState(() => _now = now);
       // Reset state absensi kalau hari sudah berganti
       if (now.day != _lastTimerDay.day ||
           now.month != _lastTimerDay.month ||
@@ -328,9 +345,9 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted || attendance == null) return;
       setState(() {
         if (attendance.checkInAt != null) {
-          checkInAt = DateTime.tryParse(attendance.checkInAt!);
+          checkInAt = DateTime.tryParse(attendance.checkInAt!)?.toLocal();
           if (attendance.checkOutAt != null) {
-            checkOutAt = DateTime.tryParse(attendance.checkOutAt!);
+            checkOutAt = DateTime.tryParse(attendance.checkOutAt!)?.toLocal();
             attendanceState = AttendanceSessionState.checkedOut;
           } else {
             attendanceState = AttendanceSessionState.checkedIn;
@@ -401,6 +418,30 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadMonthStats();
   }
 
+  Future<void> _confirmLogout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Keluar Aplikasi'),
+        content: const Text('Apakah kamu yakin ingin logout?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await widget.onLogout();
+    }
+  }
+
   void _openProfilePage() {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -437,10 +478,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           leaveHistory: leaveHistory,
           onResetPassword: _openResetPasswordPage,
-          onLogout: () async {
-            Navigator.of(context).pop();
-            await widget.onLogout();
-          },
         ),
       ),
     );
@@ -488,125 +525,119 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<LeaveHistoryItem> get _leaveHistoryThisMonth {
     return leaveHistory
-        .where((item) => _isLeaveInMonth(item, _now.year, _now.month))
+        .where((item) => _isLeaveInMonth(item, DateTime.now().year, DateTime.now().month))
         .toList();
   }
 
   @override
   Widget build(BuildContext context) {
-    final jam = DateFormat('HH:mm:ss', 'id_ID').format(_now);
-    final hari = DateFormat('EEEE', 'id_ID').format(_now);
-    final tanggal = DateFormat('dd MMMM yyyy', 'id_ID').format(_now);
-    final cs = Theme.of(context).colorScheme;
-
     return Scaffold(
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: Opacity(
-                opacity: 0.06,
-                child: Center(
-                  child: Image.asset(
-                    'assets/icons/app_icon.jpg',
-                    width: 320,
-                    fit: BoxFit.contain,
+      backgroundColor: const Color(0xFFF4F6FB),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFF4F6FB),
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        automaticallyImplyLeading: false,
+        toolbarHeight: 52,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Tooltip(
+              message: 'Keluar',
+              child: GestureDetector(
+                onTap: _confirmLogout,
+                child: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.red.shade100),
                   ),
+                  child: Icon(Icons.logout_rounded, size: 18, color: Colors.red.shade600),
                 ),
               ),
             ),
-            Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1100),
-                child: RefreshIndicator(
-                  onRefresh: _refresh,
-                  child: ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    Center(
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(14),
-                        child: Image.asset(
-                          'assets/icons/app_icon.jpg',
-                          width: 72,
-                          height: 72,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
+          ),
+        ],
+      ),
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1100),
+          child: RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                _HeaderCard(
+                  employeeName: employeeName,
+                  employeeNik: employeeNik,
+                  employeeJobTitle: employeeJobTitle,
+                  employeeRole: employeeRole,
+                  employeeDepartment: employeeDepartment,
+                  profilePhotoPath: employeeProfilePhotoPath,
+                  onTap: _openProfilePage,
+                ),
+                const SizedBox(height: 12),
+                _InfoBulanIniCard(
+                  totalHadir: totalHadir,
+                  totalOff: totalOff,
+                  totalCuti: totalCuti,
+                  totalExtraOff: totalExtraOff,
+                  totalSakit: totalSakit,
+                  totalLembur: totalLembur,
+                  leaveHistory: _leaveHistoryThisMonth,
+                  attendanceStatus: switch (attendanceState) {
+                    AttendanceSessionState.notCheckedIn => 'Belum Absen',
+                    AttendanceSessionState.checkedIn => 'Sudah Absen Masuk',
+                    AttendanceSessionState.checkedOut => 'Sudah Absen Pulang',
+                  },
+                ),
+                const SizedBox(height: 12),
+                _MainMenuCard(
+                  attendanceState: attendanceState,
+                  checkInAt: checkInAt,
+                  checkOutAt: checkOutAt,
+                  onAbsenMasuk: _openAbsenMasukPage,
+                  onAbsenPulang: _openAbsenPulangPage,
+                  onAjukanIzin: () {
+                    _openAjukanIzinPage();
+                  },
+                  onRiwayat: _openRiwayatPage,
+                ),
+                if (employeeRole.toLowerCase() == 'admin')
+                  AdminDashboardSection(
+                    currentUserName: employeeName,
+                    refreshTrigger: _adminRefreshTrigger,
+                    onSlipSent: (slip) {
+                      setState(() {
+                        _sentPayrollSlips.removeWhere(
+                          (item) =>
+                              item.employeeId == slip.employeeId &&
+                              item.month == slip.month &&
+                              item.year == slip.year,
+                        );
+                        _sentPayrollSlips.insert(0, slip);
+                      });
+                    },
+                  ),
+                const SizedBox(height: 24),
+                Center(
+                  child: Text(
+                    'King Royal Hotel © 2025 · v1.0',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade400,
+                      letterSpacing: 0.3,
                     ),
-                    const SizedBox(height: 14),
-                    _HeaderCard(
-                      employeeName: employeeName,
-                      employeeNik: employeeNik,
-                      employeeJobTitle: employeeJobTitle,
-                      employeeRole: employeeRole,
-                      employeeDepartment: employeeDepartment,
-                      profilePhotoPath: employeeProfilePhotoPath,
-                      onTap: _openProfilePage,
-                    ),
-                    const SizedBox(height: 12),
-                    _InfoBulanIniCard(
-                      totalHadir: totalHadir,
-                      totalOff: totalOff,
-                      totalCuti: totalCuti,
-                      totalExtraOff: totalExtraOff,
-                      totalSakit: totalSakit,
-                      totalLembur: totalLembur,
-                      leaveHistory: _leaveHistoryThisMonth,
-                      attendanceStatus: switch (attendanceState) {
-                        AttendanceSessionState.notCheckedIn => 'Belum Absen',
-                        AttendanceSessionState.checkedIn => 'Sudah Absen Masuk',
-                        AttendanceSessionState.checkedOut =>
-                          'Sudah Absen Pulang',
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    _MainMenuCard(
-                      jam: jam,
-                      hari: hari,
-                      tanggal: tanggal,
-                      attendanceState: attendanceState,
-                      checkInAt: checkInAt,
-                      checkOutAt: checkOutAt,
-                      onAbsenMasuk: _openAbsenMasukPage,
-                      onAbsenPulang: _openAbsenPulangPage,
-                      onAjukanIzin: () {
-                        _openAjukanIzinPage();
-                      },
-                      onRiwayat: _openRiwayatPage,
-                    ),
-                    if (employeeRole.toLowerCase() == 'admin')
-                      AdminDashboardSection(
-                        currentUserName: employeeName,
-                        refreshTrigger: _adminRefreshTrigger,
-                        onSlipSent: (slip) {
-                          setState(() {
-                            _sentPayrollSlips.removeWhere(
-                              (item) =>
-                                  item.employeeId == slip.employeeId &&
-                                  item.month == slip.month &&
-                                  item.year == slip.year,
-                            );
-                            _sentPayrollSlips.insert(0, slip);
-                          });
-                        },
-                      ),
-                    const SizedBox(height: 20),
-                    Center(
-                      child: Text(
-                        'Copyright King Royal Hotel - v1.0',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: cs.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  ],
                   ),
                 ),
-              ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -654,72 +685,108 @@ class _HeaderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Card(
-      elevation: 1.5,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+    const royalBlue = Color(0xFF0D2B52);
+    const royalBlueDark = Color(0xFF071828);
+    const royalGold = Color(0xFFC9A548);
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [royalBlue, royalBlueDark],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: royalBlue.withValues(alpha: 0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: GestureDetector(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              ProfileAvatar(radius: 36, photoPath: profilePhotoPath),
-              const SizedBox(height: 10),
-              Text(
-                'Selamat Datang',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: cs.primary,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 17,
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+            child: Column(
+              children: [
+                ProfileAvatar(radius: 38, photoPath: profilePhotoPath),
+                const SizedBox(height: 10),
+                Text(
+                  'Selamat Datang,',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.7),
+                    fontSize: 13,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                employeeName,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
+                const SizedBox(height: 2),
+                Text(
+                  employeeName,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'kode karyawan: $employeeNik',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: cs.onSurfaceVariant),
-              ),
-              Text(
-                employeeJobTitle,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: cs.onSurfaceVariant),
-              ),
-              Text(
-                'Role: $employeeRole',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: cs.onSurfaceVariant),
-              ),
-              Text(
-                employeeDepartment,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: cs.onSurfaceVariant),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Ketuk untuk lihat profil',
-                style: TextStyle(
-                  color: cs.primary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
+                const SizedBox(height: 6),
+                Text(
+                  '$employeeJobTitle · $employeeDepartment',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.65),
+                    fontSize: 12,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: royalGold.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: royalGold.withValues(alpha: 0.5)),
+                  ),
+                  child: Text(
+                    employeeRole,
+                    style: const TextStyle(
+                      color: royalGold,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.4,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.person_rounded, size: 12, color: Colors.white.withValues(alpha: 0.65)),
+                      const SizedBox(width: 5),
+                      Text(
+                        'Lihat Profil Lengkap',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.65),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Icon(Icons.chevron_right_rounded, size: 14, color: Colors.white.withValues(alpha: 0.65)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-      ),
     );
   }
 }
@@ -747,110 +814,178 @@ class _InfoBulanIniCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final infoItems = [
-      _InfoLine(label: 'Total Hadir', value: '$totalHadir hari'),
-      _InfoLine(label: 'Total Off', value: '$totalOff hari'),
-      _InfoLine(label: 'Total Cuti', value: '$totalCuti hari'),
-      _InfoLine(label: 'Total Extra Off', value: '$totalExtraOff hari'),
-      _InfoLine(label: 'Total Sakit', value: '$totalSakit hari'),
-      _InfoLine(label: 'Total Lembur', value: '$totalLembur jam'),
-      _InfoLine(label: 'Status Absen Hari Ini', value: attendanceStatus),
+    const royalBlue = Color(0xFF0D2B52);
+    final statItems = [
+      _StatItem(Icons.check_circle_rounded, 'Hadir', '$totalHadir hari', const Color(0xFF1B5E20)),
+      _StatItem(Icons.beach_access_rounded, 'Off', '$totalOff hari', const Color(0xFF455A64)),
+      _StatItem(Icons.luggage_rounded, 'Cuti', '$totalCuti hari', const Color(0xFF6A1B9A)),
+      _StatItem(Icons.event_available_rounded, 'Extra Off', '$totalExtraOff hari', const Color(0xFF1565C0)),
+      _StatItem(Icons.local_hospital_rounded, 'Sakit', '$totalSakit hari', const Color(0xFFE65100)),
+      _StatItem(Icons.more_time_rounded, 'Lembur', '$totalLembur jam', royalBlue),
     ];
 
-    return Card(
-      elevation: 1.5,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Info Bulan Ini',
-              style: TextStyle(fontWeight: FontWeight.w700),
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF0FF),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.calendar_month_rounded, size: 17, color: royalBlue),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                'Info Bulan Ini',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: royalBlue),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          // Status absen chip
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: attendanceStatus.contains('Pulang')
+                  ? const Color(0xFFE8F5E9)
+                  : attendanceStatus.contains('Masuk')
+                      ? const Color(0xFFE3F2FD)
+                      : const Color(0xFFFFF8E1),
+              borderRadius: BorderRadius.circular(10),
             ),
-            const SizedBox(height: 10),
-            ...infoItems.map(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  attendanceStatus.contains('Pulang')
+                      ? Icons.check_circle_rounded
+                      : attendanceStatus.contains('Masuk')
+                          ? Icons.login_rounded
+                          : Icons.access_time_rounded,
+                  size: 15,
+                  color: attendanceStatus.contains('Pulang')
+                      ? const Color(0xFF1B5E20)
+                      : attendanceStatus.contains('Masuk')
+                          ? const Color(0xFF0D47A1)
+                          : const Color(0xFFF57F17),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  attendanceStatus,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    color: attendanceStatus.contains('Pulang')
+                        ? const Color(0xFF1B5E20)
+                        : attendanceStatus.contains('Masuk')
+                            ? const Color(0xFF0D47A1)
+                            : const Color(0xFFF57F17),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          // Grid statistik
+          GridView.count(
+            crossAxisCount: 3,
+            childAspectRatio: 1.3,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            children: statItems.map((s) => _MiniStatTile(item: s)).toList(),
+          ),
+          if (leaveHistory.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            const Divider(height: 1),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Icon(Icons.assignment_rounded, size: 15, color: royalBlue),
+                const SizedBox(width: 6),
+                Text('Pengajuan Izin', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Colors.grey.shade700)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...leaveHistory.map(
               (item) => Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        item.label,
-                        style: TextStyle(color: cs.onSurfaceVariant),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(item.title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                          Text(item.date, style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Text(
-                      item.value,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: item.label.contains('Status')
-                            ? cs.primary
-                            : cs.onSurface,
-                      ),
+                    _LeaveStatusBadge(
+                      status: switch (item.status) {
+                        LeaveHistoryStatus.approved => LeaveSubmissionStatus.approved,
+                        LeaveHistoryStatus.pending => LeaveSubmissionStatus.pending,
+                        LeaveHistoryStatus.rejected => LeaveSubmissionStatus.rejected,
+                      },
                     ),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 2),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Status Pengajuan Izin',
-                    style: TextStyle(color: cs.onSurfaceVariant),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (leaveHistory.isEmpty)
-              const _LeaveStatusBadge(status: LeaveSubmissionStatus.none)
-            else
-              ...leaveHistory.map(
-                (item) => Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              item.title,
-                              style: TextStyle(color: cs.onSurfaceVariant),
-                            ),
-                          ),
-                          _LeaveStatusBadge(
-                            status: switch (item.status) {
-                              LeaveHistoryStatus.approved =>
-                                LeaveSubmissionStatus.approved,
-                              LeaveHistoryStatus.pending =>
-                                LeaveSubmissionStatus.pending,
-                              LeaveHistoryStatus.rejected =>
-                                LeaveSubmissionStatus.rejected,
-                            },
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Tanggal: ${item.date}',
-                        style: TextStyle(
-                          color: cs.onSurfaceVariant,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
           ],
-        ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatItem {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+  const _StatItem(this.icon, this.label, this.value, this.color);
+}
+
+class _MiniStatTile extends StatelessWidget {
+  final _StatItem item;
+  const _MiniStatTile({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: item.color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(item.icon, size: 14, color: item.color),
+          const SizedBox(height: 4),
+          Text(item.value, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: item.color)),
+          Text(item.label, style: TextStyle(fontSize: 10, color: item.color.withValues(alpha: 0.7))),
+        ],
       ),
     );
   }
@@ -910,17 +1045,7 @@ class _LeaveStatusBadge extends StatelessWidget {
   }
 }
 
-class _InfoLine {
-  final String label;
-  final String value;
-
-  const _InfoLine({required this.label, required this.value});
-}
-
-class _MainMenuCard extends StatelessWidget {
-  final String jam;
-  final String hari;
-  final String tanggal;
+class _MainMenuCard extends StatefulWidget {
   final AttendanceSessionState attendanceState;
   final DateTime? checkInAt;
   final DateTime? checkOutAt;
@@ -930,9 +1055,6 @@ class _MainMenuCard extends StatelessWidget {
   final VoidCallback onRiwayat;
 
   const _MainMenuCard({
-    required this.jam,
-    required this.hari,
-    required this.tanggal,
     required this.attendanceState,
     required this.checkInAt,
     required this.checkOutAt,
@@ -943,88 +1065,164 @@ class _MainMenuCard extends StatelessWidget {
   });
 
   @override
+  State<_MainMenuCard> createState() => _MainMenuCardState();
+}
+
+class _MainMenuCardState extends State<_MainMenuCard> {
+  DateTime _now = DateTime.now();
+  Timer? _clockTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _now = DateTime.now());
+    });
+  }
+
+  @override
+  void dispose() {
+    _clockTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final jam = DateFormat('HH:mm:ss', 'id_ID').format(_now);
+    final hari = DateFormat('EEEE', 'id_ID').format(_now);
+    final tanggal = DateFormat('dd MMMM yyyy', 'id_ID').format(_now);
     final cs = Theme.of(context).colorScheme;
     final menus = [
       _MainMenuItem(
         title: 'Absen Masuk',
         icon: Icons.login_rounded,
         color: cs.primary,
-        isEnabled: attendanceState == AttendanceSessionState.notCheckedIn,
-        onTap: onAbsenMasuk,
+        isEnabled: widget.attendanceState == AttendanceSessionState.notCheckedIn,
+        onTap: widget.onAbsenMasuk,
       ),
       _MainMenuItem(
         title: 'Absen Pulang',
         icon: Icons.logout_rounded,
         color: cs.secondary,
-        isEnabled: attendanceState == AttendanceSessionState.checkedIn,
-        onTap: onAbsenPulang,
+        isEnabled: widget.attendanceState == AttendanceSessionState.checkedIn,
+        onTap: widget.onAbsenPulang,
       ),
       _MainMenuItem(
         title: 'Ajukan Izin',
         icon: Icons.note_add_rounded,
         color: const Color(0xFF2A8F64),
-        onTap: onAjukanIzin,
+        onTap: widget.onAjukanIzin,
       ),
       _MainMenuItem(
         title: 'Riwayat',
         icon: Icons.history_rounded,
         color: const Color(0xFF8949B3),
-        onTap: onRiwayat,
+        onTap: widget.onRiwayat,
       ),
     ];
 
-    return Card(
-      elevation: 1.5,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Menu Utama',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              jam,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            Text(hari, style: TextStyle(color: cs.onSurfaceVariant)),
-            Text(tanggal, style: TextStyle(color: cs.onSurfaceVariant)),
-            if (checkInAt != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Absen masuk pada ${DateFormat('HH:mm:ss', 'id_ID').format(checkInAt!)} WIB',
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF0FF),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.grid_view_rounded, size: 17, color: Color(0xFF0D2B52)),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                'Menu Utama',
                 style: TextStyle(
-                  color: cs.primary,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  color: Color(0xFF0D2B52),
                 ),
               ),
-            ],
-            if (checkOutAt != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                'Absen pulang pada ${DateFormat('HH:mm:ss', 'id_ID').format(checkOutAt!)} WIB',
-                style: TextStyle(
-                  color: cs.secondary,
-                  fontWeight: FontWeight.w600,
-                ),
+              const Spacer(),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    jam,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0D2B52),
+                    ),
+                  ),
+                  Text(
+                    '$hari, $tanggal',
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                  ),
+                ],
               ),
             ],
-            const SizedBox(height: 12),
-            GridView.count(
-              crossAxisCount: 2,
-              childAspectRatio: 1.45,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              children: menus.map((item) => _MenuTile(item: item)).toList(),
+          ),
+          if (widget.checkInAt != null || widget.checkOutAt != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF0FF),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (widget.checkInAt != null)
+                    Row(children: [
+                      const Icon(Icons.login_rounded, size: 14, color: Color(0xFF0D2B52)),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Masuk: ${DateFormat('HH:mm:ss', 'id_ID').format(widget.checkInAt!)} WIB',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF0D2B52)),
+                      ),
+                    ]),
+                  if (widget.checkInAt != null && widget.checkOutAt != null) const SizedBox(height: 4),
+                  if (widget.checkOutAt != null)
+                    Row(children: [
+                      const Icon(Icons.logout_rounded, size: 14, color: Color(0xFF2A8F64)),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Pulang: ${DateFormat('HH:mm:ss', 'id_ID').format(widget.checkOutAt!)} WIB',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF2A8F64)),
+                      ),
+                    ]),
+                ],
+              ),
             ),
           ],
-        ),
+          const SizedBox(height: 14),
+          GridView.count(
+            crossAxisCount: 2,
+            childAspectRatio: 1.5,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            children: menus.map((item) => _MenuTile(item: item)).toList(),
+          ),
+        ],
       ),
     );
   }
@@ -1053,29 +1251,45 @@ class _MenuTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tileColor = item.isEnabled
-        ? item.color.withValues(alpha: 0.14)
+    final isEnabled = item.isEnabled;
+    final bgColor = isEnabled
+        ? item.color.withValues(alpha: 0.1)
+        : const Color(0xFFF0F0F0);
+    final iconBg = isEnabled
+        ? item.color.withValues(alpha: 0.18)
         : const Color(0xFFE0E0E0);
-    final iconColor = item.isEnabled ? item.color : const Color(0xFF9E9E9E);
-    final textColor = item.isEnabled ? Colors.black87 : const Color(0xFF9E9E9E);
+    final iconColor = isEnabled ? item.color : const Color(0xFFBDBDBD);
+    final textColor = isEnabled ? const Color(0xFF1A1A2E) : const Color(0xFFBDBDBD);
 
     return Material(
-      color: tileColor,
+      color: bgColor,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: item.isEnabled ? item.onTap : null,
+        onTap: isEnabled ? item.onTap : null,
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(item.icon, color: iconColor),
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: iconBg,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(item.icon, color: iconColor, size: 20),
+              ),
               const SizedBox(height: 10),
               Text(
                 item.title,
-                style: TextStyle(fontWeight: FontWeight.w700, color: textColor),
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: textColor,
+                ),
               ),
             ],
           ),

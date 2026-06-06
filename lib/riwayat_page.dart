@@ -178,6 +178,9 @@ class _RiwayatPageState extends State<RiwayatPage> {
       appBar: AppBar(title: const Text('Riwayat Absensi')),
       body: ListView(
         padding: const EdgeInsets.all(16),
+        physics: const BouncingScrollPhysics(
+          parent: AlwaysScrollableScrollPhysics(),
+        ),
         children: [
           Card(
             elevation: 1.5,
